@@ -1,0 +1,119 @@
+<h2>LSTM World Model — Architecture & Data Pipeline</h2>
+<p class="subtitle">Learns building physics from 8760 hours of Edmonton data · Predicts one step ahead · Used by both MPC and PPO env</p>
+
+<div class="section">
+  <h3>Data pipeline (before any training)</h3>
+  <div style="display:flex; flex-direction:column; gap:8px; padding:16px; background:rgba(255,255,255,0.04); border-radius:8px; font-family:monospace; font-size:0.88em; line-height:2;">
+
+    <div><span style="color:#6366f1;">Step 1</span>  Load Excel Results sheet → 8760 rows, 7 columns</div>
+    <div><span style="color:#6366f1;">Step 2</span>  Binarise actions: fan_on = (Cooling_power &gt; 0), heater_on = (Heating_power &gt; 0)</div>
+    <div style="padding-left:60px; color:#94a3b8;">→ 6 features: T_outside, T_inside, T_floor, SR_direct, fan_on, heater_on</div>
+    <div><span style="color:#6366f1;">Step 3</span>  Time-based split (NO shuffling — time series)</div>
+    <div style="padding-left:60px; color:#94a3b8;">Train: hours  0–6131  (70% = ~8.5 months)</div>
+    <div style="padding-left:60px; color:#94a3b8;">Val:   hours  6132–7315 (15%)</div>
+    <div style="padding-left:60px; color:#94a3b8;">Test:  hours  7316–8759 (15%)</div>
+    <div><span style="color:#6366f1;">Step 4</span>  Fit StandardScaler on <em>training set only</em> → save as scaler.pkl (no data leakage)</div>
+    <div style="padding-left:60px; color:#94a3b8;">Scales T_outside, T_inside, T_floor, SR_direct to zero mean / unit std</div>
+    <div style="padding-left:60px; color:#94a3b8;">fan_on and heater_on stay as 0/1 (already bounded)</div>
+    <div><span style="color:#6366f1;">Step 5</span>  Sliding window → sequences of length 24</div>
+    <div style="padding-left:60px; color:#94a3b8;">X[t]: features[t-24 : t]   shape (24, 6)</div>
+    <div style="padding-left:60px; color:#94a3b8;">y[t]: [T_inside[t], T_floor[t]]  shape (2,)  — also normalised</div>
+    <div style="padding-left:60px; color:#94a3b8;">Result: 6108 train sequences, 1294 val, 1444 test</div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Network architecture</h3>
+  <div style="display:flex; align-items:center; gap:0; flex-wrap:wrap; margin-top:12px;">
+
+    <div style="padding:14px 18px; background:rgba(99,102,241,0.15); border-radius:8px; text-align:center; min-width:120px;">
+      <p class="label" style="color:#6366f1;">Input</p>
+      <p style="font-family:monospace; font-size:0.9em; margin:4px 0;">(batch, 24, 6)</p>
+      <p style="font-size:0.8em; opacity:0.7; margin:0;">24h window<br/>6 features</p>
+    </div>
+
+    <div style="font-size:1.4em; padding:0 8px; color:#6366f1;">→</div>
+
+    <div style="padding:14px 18px; background:rgba(139,92,246,0.15); border-radius:8px; text-align:center; min-width:130px;">
+      <p class="label" style="color:#a78bfa;">LSTM layer 1</p>
+      <p style="font-family:monospace; font-size:0.9em; margin:4px 0;">hidden = 128</p>
+      <p style="font-size:0.8em; opacity:0.7; margin:0;">returns sequence</p>
+    </div>
+
+    <div style="font-size:1.4em; padding:0 8px; color:#a78bfa;">→</div>
+
+    <div style="padding:14px 18px; background:rgba(139,92,246,0.15); border-radius:8px; text-align:center; min-width:130px;">
+      <p class="label" style="color:#a78bfa;">Dropout 0.2</p>
+      <p style="font-family:monospace; font-size:0.9em; margin:4px 0;">regularisation</p>
+      <p style="font-size:0.8em; opacity:0.7; margin:0;">prevents overfit</p>
+    </div>
+
+    <div style="font-size:1.4em; padding:0 8px; color:#a78bfa;">→</div>
+
+    <div style="padding:14px 18px; background:rgba(139,92,246,0.15); border-radius:8px; text-align:center; min-width:130px;">
+      <p class="label" style="color:#a78bfa;">LSTM layer 2</p>
+      <p style="font-family:monospace; font-size:0.9em; margin:4px 0;">hidden = 128</p>
+      <p style="font-size:0.8em; opacity:0.7; margin:0;">last hidden state only</p>
+    </div>
+
+    <div style="font-size:1.4em; padding:0 8px; color:#a78bfa;">→</div>
+
+    <div style="padding:14px 18px; background:rgba(16,185,129,0.15); border-radius:8px; text-align:center; min-width:120px;">
+      <p class="label" style="color:#10b981;">FC 128→64</p>
+      <p style="font-family:monospace; font-size:0.9em; margin:4px 0;">ReLU</p>
+      <p style="font-size:0.8em; opacity:0.7; margin:0;"></p>
+    </div>
+
+    <div style="font-size:1.4em; padding:0 8px; color:#10b981;">→</div>
+
+    <div style="padding:14px 18px; background:rgba(16,185,129,0.15); border-radius:8px; text-align:center; min-width:120px;">
+      <p class="label" style="color:#10b981;">FC 64→2</p>
+      <p style="font-family:monospace; font-size:0.9em; margin:4px 0;">linear</p>
+      <p style="font-size:0.8em; opacity:0.7; margin:0;">T_inside, T_floor</p>
+    </div>
+
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Training config</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+    <div style="padding:12px; background:rgba(255,255,255,0.04); border-radius:8px;">
+      <p class="label">Loss & optimiser</p>
+      <p style="font-family:monospace; font-size:0.9em; line-height:1.8; margin:4px 0;">
+        MSE on normalised targets<br/>
+        Adam lr=1e-3<br/>
+        ReduceLROnPlateau (factor=0.5, patience=5)<br/>
+        Batch size = 64<br/>
+        Max epochs = 100, early stop patience = 15
+      </p>
+    </div>
+    <div style="padding:12px; background:rgba(255,255,255,0.04); border-radius:8px;">
+      <p class="label">What gets saved</p>
+      <p style="font-family:monospace; font-size:0.9em; line-height:1.8; margin:4px 0;">
+        models/lstm_best.pt  ← lowest val loss<br/>
+        models/scaler.pkl    ← fitted StandardScaler<br/>
+        (logged: train/val loss curve)
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>How MPC uses it (autoregressive rollout)</h3>
+  <div style="padding:14px; background:rgba(245,158,11,0.08); border-radius:8px; font-family:monospace; font-size:0.88em; line-height:2; border-left:3px solid #f59e0b;">
+    <div style="color:#94a3b8;"># MPC needs to simulate 24 steps ahead for each candidate schedule</div>
+    <div>window = last_24h_real_data.copy()  <span style="color:#94a3b8;"># shape (24, 6)</span></div>
+    <div>for step in range(24):</div>
+    <div style="padding-left:24px;">T_next = lstm.predict(window)        <span style="color:#94a3b8;"># → [T_inside, T_floor]</span></div>
+    <div style="padding-left:24px;">new_row = [T_outside_forecast[step],  <span style="color:#94a3b8;"># from weather API</span></div>
+    <div style="padding-left:56px;">T_next[0], T_next[1],          <span style="color:#94a3b8;"># predicted temps</span></div>
+    <div style="padding-left:56px;">SR_forecast[step],             <span style="color:#94a3b8;"># from weather API</span></div>
+    <div style="padding-left:56px;">fan_schedule[step],            <span style="color:#94a3b8;"># candidate action</span></div>
+    <div style="padding-left:56px;">heater_schedule[step]]</div>
+    <div style="padding-left:24px;">window = slide(window, new_row)      <span style="color:#94a3b8;"># drop oldest row, append new</span></div>
+  </div>
+  <p style="margin:8px 0 0 0; font-size:0.88em; opacity:0.7;">⚠ Errors compound over 24 steps — this is expected and normal. The LSTM only needs to be good enough that the MPC can distinguish good schedules from bad ones.</p>
+</div>
+
+<p style="margin-top:20px; opacity:0.7; font-size:0.9em;">Does this look right? Reply in terminal — next: PPO environment and training setup.</p>

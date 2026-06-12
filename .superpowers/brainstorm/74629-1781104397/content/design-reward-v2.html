@@ -1,0 +1,110 @@
+<h2>Reward Function — Hard Version</h2>
+<p class="subtitle">Prevents "always off" · Asymmetric cold/hot · Inaction explicitly punished</p>
+
+<div class="section">
+  <h3>Formula</h3>
+  <div style="padding:20px; background:rgba(255,255,255,0.06); border-radius:10px; font-family:monospace; font-size:0.92em; line-height:2.2;">
+
+    <div style="color:#94a3b8;"># How far outside the comfort band</div>
+    <div><span style="color:#e879f9;">cold_dev</span> = max(0, 18 − T_inside)   <span style="color:#94a3b8;"># °C below 18</span></div>
+    <div><span style="color:#e879f9;">hot_dev</span>  = max(0, T_inside − 24)   <span style="color:#94a3b8;"># °C above 24</span></div>
+    <br/>
+
+    <div style="color:#94a3b8;"># 1. COMFORT — quadratic, asymmetric (cold hurts 3× more than hot)</div>
+    <div><span style="color:#6366f1;">r_comfort</span> = <span style="color:#10b981;">+2.0</span>                   <span style="color:#94a3b8;">if in [18,24]</span></div>
+    <div style="padding-left:96px;">= <span style="color:#f87171;">−(cold_dev²) × 3.0</span>  <span style="color:#94a3b8;">if cold</span></div>
+    <div style="padding-left:96px;">= <span style="color:#fb923c;">−(hot_dev²)  × 1.0</span>  <span style="color:#94a3b8;">if hot</span></div>
+    <br/>
+
+    <div style="color:#94a3b8;"># 2. INACTION — fires when deviation &gt; 3°C AND the right device is off</div>
+    <div style="color:#94a3b8;">#    This is what stops the agent from doing nothing and hoping for the best</div>
+    <div><span style="color:#f59e0b;">r_inaction</span> = −10 × cold_dev   <span style="color:#94a3b8;">if cold_dev &gt; 3 AND heater_on == 0</span></div>
+    <div style="padding-left:100px;">= −4  × hot_dev    <span style="color:#94a3b8;">if hot_dev  &gt; 3 AND fan_on   == 0</span></div>
+    <div style="padding-left:100px;">= 0                <span style="color:#94a3b8;">otherwise</span></div>
+    <br/>
+
+    <div style="color:#94a3b8;"># 3. ENERGY — tiny tiebreaker, never overrides comfort</div>
+    <div><span style="color:#34d399;">r_energy</span> = −(0.05 × fan_on + 0.10 × heater_on)</div>
+    <br/>
+
+    <div style="font-size:1.1em; padding:10px; background:rgba(255,255,255,0.07); border-radius:6px;">
+      <strong style="color:#e2e8f0;">r(t) = r_comfort + r_inaction + r_energy</strong>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>Worked examples</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px;">
+
+    <div style="padding:13px; background:rgba(16,185,129,0.1); border-radius:8px; border-left:3px solid #10b981;">
+      <p class="label" style="color:#10b981;">Best case — comfort, nothing on</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">T=21°C, fan=0, heater=0</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">r_comfort=+2.0, r_inaction=0, r_energy=0</p>
+      <p style="margin:6px 0 0 0; font-family:monospace; font-weight:700; color:#10b981; font-size:1.05em;">r = +2.0</p>
+    </div>
+
+    <div style="padding:13px; background:rgba(99,102,241,0.1); border-radius:8px; border-left:3px solid #6366f1;">
+      <p class="label" style="color:#6366f1;">Comfortable, fan running</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">T=23°C, fan=1, heater=0</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">r_comfort=+2.0, r_inaction=0, r_energy=−0.05</p>
+      <p style="margin:6px 0 0 0; font-family:monospace; font-weight:700; color:#6366f1; font-size:1.05em;">r = +1.95</p>
+    </div>
+
+    <div style="padding:13px; background:rgba(245,158,11,0.1); border-radius:8px; border-left:3px solid #f59e0b;">
+      <p class="label" style="color:#f59e0b;">2°C cold — heater off (no inaction kick yet)</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">T=16°C, fan=0, heater=0</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">cold_dev=2, r_comfort=−(4×3)=−12, r_inaction=0</p>
+      <p style="margin:6px 0 0 0; font-family:monospace; font-weight:700; color:#f59e0b; font-size:1.05em;">r = −12.0</p>
+    </div>
+
+    <div style="padding:13px; background:rgba(248,113,113,0.12); border-radius:8px; border-left:3px solid #f87171;">
+      <p class="label" style="color:#f87171;">5°C cold — heater OFF (inaction fires)</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">T=13°C, fan=0, heater=0</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">cold_dev=5, r_comfort=−75, r_inaction=−50</p>
+      <p style="margin:6px 0 0 0; font-family:monospace; font-weight:700; color:#f87171; font-size:1.05em;">r = −125.0 ← agent never wants this</p>
+    </div>
+
+    <div style="padding:13px; background:rgba(99,102,241,0.1); border-radius:8px; border-left:3px solid #6366f1;">
+      <p class="label" style="color:#6366f1;">5°C cold — heater ON (inaction cleared)</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">T=13°C, fan=0, heater=1</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">cold_dev=5, r_comfort=−75, r_inaction=0, r_energy=−0.10</p>
+      <p style="margin:6px 0 0 0; font-family:monospace; font-weight:700; color:#6366f1; font-size:1.05em;">r = −75.1 ← 50 pts better → heater learned</p>
+    </div>
+
+    <div style="padding:13px; background:rgba(248,113,113,0.12); border-radius:8px; border-left:3px solid #f87171;">
+      <p class="label" style="color:#f87171;">Peak summer — fan OFF (inaction fires)</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">T=40°C, fan=0, heater=0</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">hot_dev=16, r_comfort=−256, r_inaction=−64</p>
+      <p style="margin:6px 0 0 0; font-family:monospace; font-weight:700; color:#f87171; font-size:1.05em;">r = −320.0</p>
+    </div>
+
+    <div style="padding:13px; background:rgba(99,102,241,0.1); border-radius:8px; border-left:3px solid #6366f1;">
+      <p class="label" style="color:#6366f1;">Peak summer — fan ON (inaction cleared)</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">T=40°C, fan=1, heater=0</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">hot_dev=16, r_comfort=−256, r_inaction=0, r_energy=−0.05</p>
+      <p style="margin:6px 0 0 0; font-family:monospace; font-weight:700; color:#6366f1; font-size:1.05em;">r = −256.05 ← 64 pts better → fan learned</p>
+    </div>
+
+    <div style="padding:13px; background:rgba(248,113,113,0.12); border-radius:8px; border-left:3px solid #ef4444;">
+      <p class="label" style="color:#ef4444;">Wrong action — heating when already hot</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">T=30°C, fan=0, heater=1</p>
+      <p style="margin:3px 0; font-family:monospace; font-size:0.9em;">hot_dev=6, r_comfort=−36, r_inaction=−24, r_energy=−0.10</p>
+      <p style="margin:6px 0 0 0; font-family:monospace; font-weight:700; color:#ef4444; font-size:1.05em;">r = −60.1 ← worst of both worlds</p>
+    </div>
+
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px; padding:14px; background:rgba(255,255,255,0.04); border-radius:8px;">
+  <p class="label">Why this works</p>
+  <ul style="margin:6px 0; padding-left:20px; line-height:1.9;">
+    <li><strong>Quadratic comfort</strong> — deviations compound. 2°C = −12/step. 5°C = −75/step. Agent cannot ignore this.</li>
+    <li><strong>Cold 3× hot</strong> — in Edmonton, a building at −8°C (seen in the data) is a much harder emergency than 40°C. Pipes, safety.</li>
+    <li><strong>Inaction penalty threshold at 3°C</strong> — small 1–2°C excursions don't trigger it (LSTM uncertainty margin), but clear violations get the extra kick.</li>
+    <li><strong>Inaction only penalises the relevant device</strong> — cold + fan on still gets inaction penalty (fan doesn't heat). Agent learns which device solves which problem.</li>
+    <li><strong>Energy cost is ~0.5% of a 3°C comfort penalty</strong> — agent will never sacrifice comfort to save energy.</li>
+  </ul>
+</div>
+
+<p style="margin-top:20px; opacity:0.7; font-size:0.9em;">Does this reward look right? Reply in terminal — next: LSTM architecture + data pipeline.</p>

@@ -1,0 +1,76 @@
+<h2>Which architecture approach?</h2>
+<p class="subtitle">Fan on/off · Heater on/off · Online learning · Edmonton building</p>
+
+<div class="options">
+
+  <div class="option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Train in Python → Export model.json + weights → Node-RED loads files (Recommended)</h3>
+      <p>Train LSTM and PPO in Python (TF/Keras for LSTM, Stable-Baselines3/PyTorch for PPO policy). Export each to TFJS format: <code>lstm/model.json</code> + <code>lstm.weights.bin</code>, <code>policy/model.json</code> + <code>policy.weights.bin</code>, <code>scaler.json</code> (normalization params). The Node-RED custom node loads all three at startup — no Python process needed at runtime. For continual learning: Node-RED logs real experience to a file; a background Python script re-trains periodically and overwrites the exported files; Node-RED hot-reloads the new weights.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>No Python process running alongside Node-RED</li>
+          <li>Self-contained Node-RED node — just drop in the files</li>
+          <li>Best of both worlds: Python training ergonomics + JS runtime</li>
+          <li>MPC = random shooting in TFJS (works perfectly with discrete fan/heater)</li>
+          <li>Online learning via scheduled Python retrain → hot-reload in Node-RED</li>
+          <li>Each exported artifact is inspectable and replaceable independently</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Learning happens in batches (e.g. every 24h), not step-by-step</li>
+          <li>PyTorch PPO policy → ONNX → TFJS conversion adds one extra export step</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>PyTorch throughout + Python HTTP server</h3>
+      <p>LSTM + PPO in PyTorch. A small Flask/FastAPI server stays alive. Node-RED sends sensor data → Python runs MPC + PPO → returns fan/heater command. Python process does online learning step-by-step from each real observation.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>True step-by-step online learning</li>
+          <li>SB3 PPO is the easiest RL library available</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Python process must stay running — if it crashes, Node-RED goes blind</li>
+          <li>More moving parts to manage in production</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>TF/Keras throughout + TFJS (pure JS in Node-RED)</h3>
+      <p>Train everything in TF/Keras. Export to TFJS. Node-RED does inference AND fine-tuning with <code>model.fit()</code> in JavaScript — no Python ever at runtime.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Zero Python at runtime</li>
+          <li>True in-node online fine-tuning possible via TFJS</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>TFJS online training is experimental, memory-hungry</li>
+          <li>PPO in TF-Agents is much harder than SB3</li>
+          <li>Harder to debug — no Python tooling at training time</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:24px; padding:16px; background: rgba(255,255,255,0.05); border-radius:8px;">
+  <p class="label">How "keep learning" works in Option D</p>
+  <p style="margin:0">
+    Node-RED appends each real timestep to <code>experience.csv</code> (state, fan_action, heater_action, T_inside_actual).
+    A Python script runs on a schedule (e.g. every 24h or every N hours of new data):
+    reads experience.csv → fine-tunes LSTM on new observations → fine-tunes PPO on real rewards →
+    overwrites <code>model.json</code> + <code>*.bin</code> files →
+    Node-RED detects file change and reloads weights. Models improve continuously without a persistent Python process.
+  </p>
+</div>

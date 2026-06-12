@@ -1,0 +1,111 @@
+<h2>PPO Agent — Environment & Training Setup</h2>
+<p class="subtitle">Gymnasium env wraps the frozen LSTM · Discrete(4) actions · Stable-Baselines3 PPO · ~500k timesteps</p>
+
+<div class="section">
+  <h3>What is the PPO agent doing here?</h3>
+  <p style="margin:8px 0; line-height:1.8; font-size:0.95em;">
+    The LSTM learns building physics from data. The PPO agent learns <strong>control strategy</strong> by interacting with a simulated version of that physics. Instead of real sensors, it uses the LSTM as a fast, cheap simulator — it can run millions of virtual hours overnight and never damage real equipment.
+  </p>
+  <p style="margin:8px 0; line-height:1.8; font-size:0.95em; opacity:0.8;">
+    The frozen LSTM is the <strong>physics engine</strong>. PPO is the <strong>player</strong> learning to control it.
+  </p>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Gymnasium environment — what PPO sees and does</h3>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">
+
+    <div style="padding:14px; background:rgba(99,102,241,0.12); border-radius:8px; border-left:3px solid #6366f1;">
+      <p class="label" style="color:#6366f1;">Observation space — what the agent sees</p>
+      <div style="font-family:monospace; font-size:0.88em; line-height:1.9; margin-top:6px;">
+        <div>Box(shape=(26,), dtype=float32)</div>
+        <div style="color:#94a3b8; padding-left:12px;">24 values: last 24h T_inside (norm)</div>
+        <div style="color:#94a3b8; padding-left:12px;"> 1 value:  current T_outside (norm)</div>
+        <div style="color:#94a3b8; padding-left:12px;"> 1 value:  current solar radiation (norm)</div>
+      </div>
+      <p style="font-size:0.82em; margin:8px 0 0 0; opacity:0.7;">Why T_inside history? Concrete floor has 8-24h thermal memory — the last few hours tell the agent whether the building is warming or cooling.</p>
+    </div>
+
+    <div style="padding:14px; background:rgba(16,185,129,0.12); border-radius:8px; border-left:3px solid #10b981;">
+      <p class="label" style="color:#10b981;">Action space — what the agent controls</p>
+      <div style="font-family:monospace; font-size:0.88em; line-height:1.9; margin-top:6px;">
+        <div>Discrete(4)</div>
+        <div style="color:#94a3b8; padding-left:12px;">0 → fan=0, heater=0  (both off)</div>
+        <div style="color:#94a3b8; padding-left:12px;">1 → fan=1, heater=0  (fan only)</div>
+        <div style="color:#94a3b8; padding-left:12px;">2 → fan=0, heater=1  (heater only)</div>
+        <div style="color:#94a3b8; padding-left:12px;">3 → fan=1, heater=1  (both on)</div>
+      </div>
+      <p style="font-size:0.82em; margin:8px 0 0 0; opacity:0.7;">Four mutually-exclusive combos map cleanly to one discrete integer. SB3 PPO handles this natively.</p>
+    </div>
+
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Episode structure — how one training episode works</h3>
+  <div style="display:flex; flex-direction:column; gap:6px; padding:16px; background:rgba(255,255,255,0.04); border-radius:8px; font-family:monospace; font-size:0.88em; line-height:2;">
+    <div><span style="color:#6366f1;">reset()</span>  Sample random start hour from training data → load last 24h real data as initial window</div>
+    <div style="padding-left:24px; color:#888;">↓  start at a random point in the year so PPO sees all seasons</div>
+    <div><span style="color:#f59e0b;">step(action)</span></div>
+    <div style="padding-left:24px;">1. Decode action → fan_on, heater_on</div>
+    <div style="padding-left:24px;">2. Build LSTM input: [T_outside, T_inside, T_floor, SR, fan_on, heater_on] (normalised)</div>
+    <div style="padding-left:24px;">3. Call frozen LSTM → predict [T_inside_next, T_floor_next]</div>
+    <div style="padding-left:24px;">4. Slide 24h window forward (drop oldest row, append new)</div>
+    <div style="padding-left:24px;">5. Compute reward(T_inside_next, fan_on, heater_on)</div>
+    <div style="padding-left:24px;">6. Return obs, reward, done=False (episode runs fixed length)</div>
+    <div><span style="color:#10b981;">done</span>  after 168 steps (= 7 simulated days per episode)</div>
+  </div>
+  <p style="font-size:0.85em; opacity:0.7; margin:8px 0 0 0;">168 steps (7 days) is long enough to see seasonal patterns, short enough that many episodes fit in 500k timesteps. At 168 steps/episode → ~2976 episodes.</p>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Training config — Stable-Baselines3 PPO</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+    <div style="padding:12px; background:rgba(255,255,255,0.04); border-radius:8px;">
+      <p class="label">Hyperparameters</p>
+      <div style="font-family:monospace; font-size:0.88em; line-height:1.9; margin-top:4px;">
+        <div>policy = "MlpPolicy"</div>
+        <div>total_timesteps = 500_000</div>
+        <div>n_steps = 2048</div>
+        <div>batch_size = 64</div>
+        <div>n_epochs = 10</div>
+        <div>gamma = 0.99</div>
+        <div>learning_rate = 3e-4</div>
+        <div>clip_range = 0.2</div>
+        <div>ent_coef = 0.01  <span style="color:#94a3b8;"># encourages exploration</span></div>
+      </div>
+    </div>
+    <div style="padding:12px; background:rgba(255,255,255,0.04); border-radius:8px;">
+      <p class="label">What MlpPolicy looks like inside</p>
+      <div style="font-family:monospace; font-size:0.88em; line-height:1.9; margin-top:4px;">
+        <div>Input: obs(26,)</div>
+        <div>  → FC(64, tanh)</div>
+        <div>  → FC(64, tanh)</div>
+        <div>  ↓                 ↓</div>
+        <div>Actor: FC(4)   Critic: FC(1)</div>
+        <div style="color:#94a3b8;">action logits    value estimate</div>
+      </div>
+      <p style="font-size:0.82em; margin:8px 0 0 0; opacity:0.7;">SB3 builds this automatically — you don't write the policy network manually.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>What gets saved</h3>
+  <div style="padding:12px; background:rgba(255,255,255,0.04); border-radius:8px; font-family:monospace; font-size:0.88em; line-height:1.9;">
+    <div><span style="color:#10b981;">models/ppo_hvac.zip</span>  ← SB3 saves policy + value network + optimizer state</div>
+    <div><span style="color:#94a3b8; padding-left:20px;">(zip unpacks to: policy.pth, replay_buffer, hyperparams)</span></div>
+    <div style="margin-top:8px;">At runtime: <code>model = PPO.load("models/ppo_hvac.zip")</code> → <code>action, _ = model.predict(obs)</code></div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Why the LSTM is frozen during PPO training</h3>
+  <div style="padding:14px; background:rgba(245,158,11,0.08); border-radius:8px; border-left:3px solid #f59e0b; font-size:0.9em; line-height:1.8;">
+    <p style="margin:0;"><strong>If the LSTM weren't frozen:</strong> PPO's gradient updates would flow through the LSTM and distort the physics model — the building would gradually "learn" to be easy to control rather than accurately modelling the real building.</p>
+    <p style="margin:8px 0 0 0;"><strong>So:</strong> After Phase 1, we call <code>lstm.eval()</code> and <code>torch.no_grad()</code> inside the env's <code>step()</code>. The LSTM becomes a fixed physics oracle. Only PPO's own policy weights get updated.</p>
+  </div>
+</div>
+
+<p style="margin-top:20px; opacity:0.7; font-size:0.9em;">Does this look right? Reply in terminal — next: MPC random shooting design.</p>

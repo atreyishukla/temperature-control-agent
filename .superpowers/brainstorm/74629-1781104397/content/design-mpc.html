@@ -1,0 +1,96 @@
+<h2>MPC — Random Shooting</h2>
+<p class="subtitle">Thinks 24 hours ahead · Samples 1024 candidate schedules · Picks the best first action</p>
+
+<div class="section">
+  <h3>Why MPC exists alongside PPO</h3>
+  <p style="margin:8px 0; line-height:1.8; font-size:0.95em;">
+    PPO is reactive — it sees the current state and picks an action. It has no explicit lookahead; it trusts that its learned value function captures future consequences.<br/>
+    MPC is a planner — every hour it simulates 1024 possible 24-hour futures and picks the schedule that scores best. It's slower but it can see consequences that PPO's shallow MLP might miss: e.g. "if I run the heater now, the floor will still be warm in 6 hours and I won't need it then."<br/>
+    <strong>At runtime we blend both: 70% MPC action + 30% PPO action.</strong>
+  </p>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Why random shooting (not gradient-based MPC)?</h3>
+  <div style="padding:14px; background:rgba(245,158,11,0.08); border-radius:8px; border-left:3px solid #f59e0b; font-size:0.9em; line-height:1.8;">
+    <p style="margin:0;">Gradient-based MPC (e.g. Adam on action parameters) requires differentiable actions. Our actions are binary integers — the gradient of "fan=0 vs fan=1" is zero everywhere and undefined at the boundary. Gradient descent can't cross it.</p>
+    <p style="margin:8px 0 0 0;"><strong>Random shooting sidesteps this entirely:</strong> just sample random binary schedules, simulate each one with the LSTM, score by total reward, pick the best. No gradients needed. Works perfectly for discrete on/off control.</p>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>The algorithm — step by step</h3>
+  <div style="display:flex; flex-direction:column; gap:6px; padding:16px; background:rgba(255,255,255,0.04); border-radius:8px; font-family:monospace; font-size:0.88em; line-height:2.1;">
+
+    <div><span style="color:#6366f1;">Input</span>  current_window: last 24h real sensor data, shape (24, 6)</div>
+    <div><span style="color:#6366f1;">Input</span>  weather_forecast: T_outside + SR for next 24h, shape (24, 2)</div>
+    <div style="height:4px;"></div>
+
+    <div><span style="color:#f59e0b;">Step 1</span>  Sample 1024 random schedules</div>
+    <div style="padding-left:60px; color:#94a3b8;">schedules = np.random.randint(0, 2, size=(1024, 24, 2))</div>
+    <div style="padding-left:60px; color:#94a3b8;">→ shape (1024, 24, 2): 1024 candidates, 24 hours, [fan, heater]</div>
+    <div style="height:4px;"></div>
+
+    <div><span style="color:#f59e0b;">Step 2</span>  Simulate each schedule autoregressively (LSTM rollout)</div>
+    <div style="padding-left:60px; color:#94a3b8;">for each candidate k in 0..1023:</div>
+    <div style="padding-left:80px; color:#94a3b8;">window_k = current_window.copy()</div>
+    <div style="padding-left:80px; color:#94a3b8;">total_reward[k] = 0</div>
+    <div style="padding-left:80px; color:#94a3b8;">for t in 0..23:</div>
+    <div style="padding-left:100px; color:#94a3b8;">T_next = lstm(window_k)              # [T_inside, T_floor]</div>
+    <div style="padding-left:100px; color:#94a3b8;">r = reward(T_next[0], schedules[k,t])</div>
+    <div style="padding-left:100px; color:#94a3b8;">total_reward[k] += gamma^t * r       # discounted sum</div>
+    <div style="padding-left:100px; color:#94a3b8;">window_k = slide(window_k, T_next, weather[t], schedules[k,t])</div>
+    <div style="height:4px;"></div>
+
+    <div><span style="color:#f59e0b;">Step 3</span>  Pick the winning schedule</div>
+    <div style="padding-left:60px; color:#94a3b8;">best_k = argmax(total_reward)</div>
+    <div style="padding-left:60px; color:#94a3b8;">mpc_action = schedules[best_k, 0]  ← only the FIRST step matters</div>
+    <div style="height:4px;"></div>
+
+    <div><span style="color:#10b981;">Output</span>  mpc_action: [fan_on, heater_on] for this hour</div>
+  </div>
+  <p style="font-size:0.84em; opacity:0.7; margin:8px 0 0 0;">⚠ Receding horizon: we only execute the first step of the winning schedule. Next hour, we re-run MPC with fresh sensor data. The 24-step plan is a scoring tool, not a commitment.</p>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Performance on CPU</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+    <div style="padding:12px; background:rgba(255,255,255,0.04); border-radius:8px;">
+      <p class="label">Batching trick — vectorise across 1024</p>
+      <p style="font-family:monospace; font-size:0.88em; line-height:1.8; margin:6px 0;">
+        Instead of looping over 1024 candidates one by one,<br/>
+        run the LSTM on all 1024 simultaneously:<br/>
+        <span style="color:#6366f1;">input shape: (1024, 24, 6)</span><br/>
+        <span style="color:#6366f1;">output shape: (1024, 2)</span><br/>
+        PyTorch broadcasts this in one forward pass.
+      </p>
+    </div>
+    <div style="padding:12px; background:rgba(255,255,255,0.04); border-radius:8px;">
+      <p class="label">Timing</p>
+      <p style="font-family:monospace; font-size:0.88em; line-height:1.8; margin:6px 0;">
+        1024 × 24-step rollout (batched): ~80-150ms on CPU<br/>
+        We have a full hour between decisions.<br/>
+        Even 10× slower is fine.<br/><br/>
+        <span style="color:#10b981;">No GPU required.</span>
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>Blending MPC + PPO at runtime</h3>
+  <div style="padding:16px; background:rgba(255,255,255,0.04); border-radius:8px; font-family:monospace; font-size:0.88em; line-height:2;">
+    <div style="color:#94a3b8;"># Both return a [fan_on, heater_on] pair</div>
+    <div>mpc_action = mpc.solve(window, weather_forecast)    <span style="color:#94a3b8;"># [0/1, 0/1]</span></div>
+    <div>ppo_action = ppo.predict(obs)                       <span style="color:#94a3b8;"># integer 0-3 → decode</span></div>
+    <div style="height:4px;"></div>
+    <div style="color:#94a3b8;"># Blend: 70/30 vote on each device independently</div>
+    <div>fan   = 1 if (0.7*mpc_action[0] + 0.3*ppo_action[0]) >= 0.5 else 0</div>
+    <div>heater = 1 if (0.7*mpc_action[1] + 0.3*ppo_action[1]) >= 0.5 else 0</div>
+    <div style="height:4px;"></div>
+    <div style="color:#94a3b8;"># Result: final discrete fan/heater command sent to actuators</div>
+  </div>
+  <p style="font-size:0.84em; opacity:0.7; margin:8px 0 0 0;">The 70/30 split means MPC dominates but PPO can override when it's confident — e.g. if MPC says fan=off but PPO strongly predicts fan=on (0.7×0 + 0.3×1 = 0.3 &lt; 0.5, so MPC wins). If both agree, the result is unanimous. You can tune this ratio after testing.</p>
+</div>
+
+<p style="margin-top:20px; opacity:0.7; font-size:0.9em;">Does this look right? Reply in terminal — next: Flask server + online learning loop.</p>

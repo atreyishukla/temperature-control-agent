@@ -56,12 +56,13 @@ def test_make_sequences_shapes():
     assert y.dtype == np.float32
 
 
-def test_sequence_target_is_T_inside_T_floor():
+def test_sequence_target_is_delta_T_inside_T_floor():
     df = load_data(DATA_PATH)
     train, _, _, _ = split_scale(df)
     X, y = make_sequences(train)
     arr = train.values.astype('float32')
-    np.testing.assert_array_almost_equal(y[0], arr[24, 1:3])
+    expected_delta = arr[24, 1:3] - arr[23, 1:3]
+    np.testing.assert_array_almost_equal(y[0], expected_delta)
 
 
 def test_save_and_load_scaler(tmp_path):

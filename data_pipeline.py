@@ -34,12 +34,16 @@ def make_sequences(df: pd.DataFrame, seq_len: int = SEQ_LEN):
     """
     Sliding window over df.
     X[i]: rows i..i+seq_len-1,  shape (seq_len, 6)
-    y[i]: row i+seq_len, columns [T_inside, T_floor], shape (2,)
+    y[i]: ΔT = T(i+seq_len) - T(i+seq_len-1) for [T_inside, T_floor], shape (2,)
+
+    Predicting delta instead of absolute temperature breaks the spurious
+    correlation between heater_on=1 and cold conditions in the training data.
     """
     arr = df.values.astype(np.float32)
     n   = len(arr)
-    X = np.stack([arr[i : i + seq_len]  for i in range(n - seq_len)])
-    y = np.stack([arr[i + seq_len, 1:3] for i in range(n - seq_len)])
+    X = np.stack([arr[i : i + seq_len]           for i in range(n - seq_len)])
+    y = np.stack([arr[i + seq_len, 1:3] - arr[i + seq_len - 1, 1:3]
+                  for i in range(n - seq_len)])
     return X, y
 
 

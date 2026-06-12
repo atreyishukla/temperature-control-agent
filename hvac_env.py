@@ -6,7 +6,7 @@ from gymnasium import spaces
 from lstm_model import BuildingLSTM
 from reward import compute_reward
 
-EPISODE_LEN = 168  # 7 simulated days
+EPISODE_LEN = 8  # 8 steps — keeps LSTM close to training distribution
 
 # Maps Discrete(4) integer → (fan_on, heater_on)
 ACTION_MAP = {0: (0, 0), 1: (1, 0), 2: (0, 1), 3: (1, 1)}
@@ -34,10 +34,15 @@ class HVACEnv(gym.Env):
         t_inside_mean:   float,
         t_inside_std:    float,
         device:          str = 'cpu',
+        min_t_inside_c:  float = 10.0,
     ):
         super().__init__()
         self.lstm          = lstm
-        self.seqs          = train_sequences   # (N, 24, 6), normalised
+        # Filter to windows where the current T_inside >= min_t_inside_c (real °C).
+        # Prevents episodes starting in physically irrecoverable cold states.
+        min_norm = (min_t_inside_c - t_inside_mean) / t_inside_std
+        mask = train_sequences[:, -1, 1] >= min_norm
+        self.seqs = train_sequences[mask]   # (N, 24, 6), normalised
         self.t_inside_mean = t_inside_mean
         self.t_inside_std  = t_inside_std
         self.device        = device
@@ -66,16 +71,19 @@ class HVACEnv(gym.Env):
         # Frozen LSTM forward pass — no gradients, no weight updates
         x = torch.tensor(lstm_input, dtype=torch.float32).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            pred = self.lstm(x).squeeze(0).cpu().numpy()   # [T_inside_norm, T_floor_norm]
+            delta = self.lstm(x).squeeze(0).cpu().numpy()   # [ΔT_inside_norm, ΔT_floor_norm]
 
-        # Denormalise T_inside for reward
-        T_inside_real = float(pred[0]) * self.t_inside_std + self.t_inside_mean
+        # Apply delta to current normalised values
+        new_t_inside = float(self._window[-1, 1]) + float(delta[0])
+        new_t_floor  = float(self._window[-1, 2]) + float(delta[1])
+
+        T_inside_real = new_t_inside * self.t_inside_std + self.t_inside_mean
         reward        = float(compute_reward(T_inside_real, fan_on, heater_on))
 
         # Slide window forward: inherit T_outside and SR from last row
         new_row    = self._window[-1].copy()
-        new_row[1] = pred[0]          # T_inside (normalised)
-        new_row[2] = pred[1]          # T_floor  (normalised)
+        new_row[1] = new_t_inside
+        new_row[2] = new_t_floor
         new_row[4] = float(fan_on)
         new_row[5] = float(heater_on)
         self._window = np.vstack([self._window[1:], new_row])

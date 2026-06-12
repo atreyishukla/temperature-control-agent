@@ -73,9 +73,11 @@ class MPCSolver:
 
             x = torch.tensor(lstm_input, dtype=torch.float32).to(self.device)
             with torch.no_grad():
-                pred = self.lstm(x).cpu().numpy()  # (N, 2)
+                delta = self.lstm(x).cpu().numpy()  # (N, 2) — ΔT_inside, ΔT_floor
 
-            T_inside_real = pred[:, 0] * self.t_inside_std + self.t_inside_mean
+            new_t_inside  = windows[:, -1, 1] + delta[:, 0]
+            new_t_floor   = windows[:, -1, 2] + delta[:, 1]
+            T_inside_real = new_t_inside * self.t_inside_std + self.t_inside_mean
             step_rewards  = np.array([
                 compute_reward(float(T_inside_real[i]), int(fan_arr[i]), int(heat_arr[i]))
                 for i in range(N)
@@ -84,8 +86,8 @@ class MPCSolver:
             discount     *= self.gamma
 
             new_rows       = windows[:, -1, :].copy()
-            new_rows[:, 1] = pred[:, 0]
-            new_rows[:, 2] = pred[:, 1]
+            new_rows[:, 1] = new_t_inside
+            new_rows[:, 2] = new_t_floor
             new_rows[:, 4] = fan_arr
             new_rows[:, 5] = heat_arr
             windows = np.concatenate(

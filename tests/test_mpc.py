@@ -5,25 +5,23 @@ from mpc import MPCSolver
 
 
 class _ConstLSTM:
-    """Mock LSTM that always predicts a fixed (T_inside_norm, T_floor_norm)."""
+    """Mock LSTM that always returns a fixed (ΔT_inside_norm, ΔT_floor_norm)."""
 
-    def __init__(self, t_inside_norm: float = 0.1, t_floor_norm: float = 0.0):
-        self.t_inside_norm = t_inside_norm
-        self.t_floor_norm  = t_floor_norm
+    def __init__(self, delta_t_inside: float = 0.0, delta_t_floor: float = 0.0):
+        self.delta_t_inside = delta_t_inside
+        self.delta_t_floor  = delta_t_floor
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         N = x.shape[0]
-        out = torch.tensor(
-            [[self.t_inside_norm, self.t_floor_norm]] * N,
+        return torch.tensor(
+            [[self.delta_t_inside, self.delta_t_floor]] * N,
             dtype=torch.float32,
         )
-        return out
 
 
-def _make_solver(lstm=None, t_inside_norm=0.1):
+def _make_solver(lstm=None):
     if lstm is None:
-        lstm = _ConstLSTM(t_inside_norm=t_inside_norm)
-    # t_inside_mean=20, t_std=10 → normalised 0.1 → real 21°C (comfort zone)
+        lstm = _ConstLSTM()
     return MPCSolver(
         lstm=lstm,
         t_inside_mean=20.0,
@@ -34,9 +32,12 @@ def _make_solver(lstm=None, t_inside_norm=0.1):
     )
 
 
-def _make_window() -> np.ndarray:
+def _make_window(t_inside_norm: float = 0.0) -> np.ndarray:
+    """Return a (24, 6) window with a known T_inside in the last row."""
     rng = np.random.default_rng(42)
-    return rng.standard_normal((24, 6)).astype(np.float32)
+    w = rng.standard_normal((24, 6)).astype(np.float32)
+    w[-1, 1] = t_inside_norm  # set current T_inside to a known normalised value
+    return w
 
 
 # ---------------------------------------------------------------------------
@@ -77,35 +78,35 @@ def test_rollout_scores_are_finite():
 
 def test_prefers_low_energy_in_comfort_zone():
     """
-    When LSTM always predicts 21°C (comfort), both-off (action 0) should win
-    because it gets r_comfort=+2 with zero energy cost — best possible reward.
+    Window has T_inside=21°C (comfort zone). LSTM returns delta=0 so temperature
+    stays at 21°C. Both-off (action 0) should dominate — highest reward, zero cost.
     """
-    solver = _make_solver(t_inside_norm=0.1)   # 21°C
+    # 21°C → (21 - 20) / 10 = 0.1 normalised
+    solver = _make_solver(lstm=_ConstLSTM(delta_t_inside=0.0))
+    window = _make_window(t_inside_norm=0.1)   # current T_inside = 21°C
 
-    # Force all candidates to be tested: generate one of each action in first step
-    # by running with enough candidates and checking the chosen action is 0
     np.random.seed(7)
     counts = {a: 0 for a in range(4)}
     for _ in range(20):
-        counts[solver.solve(_make_window())] += 1
-    # Action 0 (both off, energy cost 0) must win most often in comfort zone
+        counts[solver.solve(window)] += 1
     assert counts[0] > counts[3], "Expected action 0 (both off) to dominate in comfort zone"
 
 
 def test_prefers_heater_when_very_cold():
     """
-    When LSTM predicts T_inside = 5°C (cold_dev=13, well below 18°C),
-    turning on the heater avoids the inaction penalty and must beat both-off.
+    Window has T_inside=5°C. LSTM returns delta=0 so temperature stays at 5°C.
+    Heater-on avoids the inaction penalty and must dominate.
     """
     # 5°C → (5 - 20) / 10 = -1.5 normalised
-    solver = _make_solver(t_inside_norm=-1.5)
+    solver = _make_solver(lstm=_ConstLSTM(delta_t_inside=0.0))
+    window = _make_window(t_inside_norm=-1.5)  # current T_inside = 5°C
 
     np.random.seed(42)
     heater_on_count = 0
     heater_off_count = 0
     for _ in range(30):
-        a = solver.solve(_make_window())
-        fan, heat = (a in {1, 3}), (a in {2, 3})
+        a = solver.solve(window)
+        heat = a in {2, 3}
         if heat:
             heater_on_count += 1
         else:

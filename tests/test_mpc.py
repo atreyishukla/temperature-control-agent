@@ -33,9 +33,9 @@ def _make_solver(lstm=None):
 
 
 def _make_window(t_inside_norm: float = 0.0) -> np.ndarray:
-    """Return a (24, 6) window with a known T_inside in the last row."""
+    """Return a (24, 8) window with a known T_inside in the last row."""
     rng = np.random.default_rng(42)
-    w = rng.standard_normal((24, 6)).astype(np.float32)
+    w = rng.standard_normal((24, 8)).astype(np.float32)
     w[-1, 1] = t_inside_norm  # set current T_inside to a known normalised value
     return w
 

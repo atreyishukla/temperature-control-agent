@@ -11,7 +11,7 @@ from train_ppo import train
 def _fake_inputs():
     lstm = BuildingLSTM()
     lstm.eval()
-    seqs = np.random.randn(50, 24, 6).astype(np.float32)
+    seqs = np.random.randn(50, 24, 8).astype(np.float32)
     return lstm, seqs
 
 

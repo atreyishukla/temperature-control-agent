@@ -1,0 +1,54 @@
+.superpowers
+
+# Build output
+/dist
+/build
+/docs
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# macOS
+.DS_Store
+
+
+# Stable-Baselines3 / Gymnasium logs
+sb3_logs/
+
+# Data files (raw/processed datasets)
+data/
+*.csv
+*.parquet
+*.npz
+*.npy
+
+# Trained model weights (regenerate with train_lstm.py + train_ppo.py)
+models/
+
+# Runtime logs
+logs/
+
+# Environment secrets
+.env
+*.env.*

@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
-FEATURE_COLS = ['T_outside', 'T_inside', 'T_floor', 'SR_direct', 'fan_on', 'heater_on']
+FEATURE_COLS = ['T_outside', 'T_inside', 'T_floor', 'SR_direct', 'fan_on', 'heater_on',
+                'hour_sin', 'hour_cos']
 SCALE_COLS   = ['T_outside', 'T_inside', 'T_floor', 'SR_direct']
 SEQ_LEN      = 24
 
@@ -14,6 +15,10 @@ def load_data(path: str) -> pd.DataFrame:
                   'SR_direct', 'Cooling_power', 'Heating_power']
     df['fan_on']    = (df['Cooling_power'] > 0).astype(float)
     df['heater_on'] = (df['Heating_power'] > 0).astype(float)
+    df['Date_time'] = pd.to_datetime(df['Date_time'])
+    hour = df['Date_time'].dt.hour
+    df['hour_sin'] = np.sin(2 * np.pi * hour / 24)
+    df['hour_cos'] = np.cos(2 * np.pi * hour / 24)
     return df[FEATURE_COLS].reset_index(drop=True)
 
 

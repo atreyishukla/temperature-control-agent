@@ -1,0 +1,65 @@
+[
+    {
+        "id": "inject1",
+        "type": "inject",
+        "name": "Send random sensors",
+        "props": [{ "p": "payload" }],
+        "repeat": "",
+        "once": false,
+        "payload": "",
+        "payloadType": "date",
+        "x": 150,
+        "y": 200,
+        "wires": [["gen_data"]]
+    },
+    {
+        "id": "gen_data",
+        "type": "function",
+        "name": "Random sensor data",
+        "func": "msg.headers = { 'Content-Type': 'application/json' };\nmsg.payload = {\n    T_outside: Math.random() * 30 - 10,\n    T_inside:  Math.random() * 20 + 10,\n    T_floor:   Math.random() * 20 + 10,\n    SR_direct: Math.random() * 800\n};\nnode.warn('Sending: ' + JSON.stringify(msg.payload));\nreturn msg;",
+        "x": 360,
+        "y": 200,
+        "wires": [["predict"]]
+    },
+    {
+        "id": "predict",
+        "type": "http request",
+        "name": "POST /predict",
+        "method": "POST",
+        "ret": "obj",
+        "url": "http://localhost:5001/predict",
+        "x": 560,
+        "y": 200,
+        "wires": [["split_outputs"]]
+    },
+    {
+        "id": "split_outputs",
+        "type": "function",
+        "name": "Extract fan / heater",
+        "func": "var fan    = { payload: msg.payload.fan_on };\nvar heater = { payload: msg.payload.heater_on };\nnode.warn('fan=' + fan.payload + '  heater=' + heater.payload + '  (source: ' + msg.payload.source + ')');\nreturn [fan, heater];",
+        "outputs": 2,
+        "x": 770,
+        "y": 200,
+        "wires": [["debug_fan"], ["debug_heater"]]
+    },
+    {
+        "id": "debug_fan",
+        "type": "debug",
+        "name": "Fan (0/1)",
+        "active": true,
+        "tosidebar": true,
+        "x": 970,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "debug_heater",
+        "type": "debug",
+        "name": "Heater (0/1)",
+        "active": true,
+        "tosidebar": true,
+        "x": 970,
+        "y": 240,
+        "wires": []
+    }
+]

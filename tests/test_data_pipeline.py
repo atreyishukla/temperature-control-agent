@@ -5,9 +5,10 @@ from data_pipeline import load_data, split_scale, make_sequences, save_scaler, l
 DATA_PATH = 'data/Concrete_floor_results.xlsx'
 
 
-def test_load_returns_6_features():
+def test_load_returns_8_features():
     df = load_data(DATA_PATH)
-    assert list(df.columns) == ['T_outside', 'T_inside', 'T_floor', 'SR_direct', 'fan_on', 'heater_on']
+    assert list(df.columns) == ['T_outside', 'T_inside', 'T_floor', 'SR_direct',
+                                 'fan_on', 'heater_on', 'hour_sin', 'hour_cos']
     assert len(df) == 8760
 
 
@@ -50,7 +51,7 @@ def test_make_sequences_shapes():
     df = load_data(DATA_PATH)
     train, val, test, _ = split_scale(df)
     X, y = make_sequences(train)
-    assert X.shape == (6108, 24, 6)
+    assert X.shape == (6108, 24, 8)
     assert y.shape == (6108, 2)
     assert X.dtype == np.float32
     assert y.dtype == np.float32

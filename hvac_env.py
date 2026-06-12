@@ -3,6 +3,7 @@ import torch
 import gymnasium as gym
 from gymnasium import spaces
 
+from data_pipeline import SEQ_LEN
 from lstm_model import BuildingLSTM
 from reward import compute_reward
 
@@ -47,7 +48,7 @@ class HVACEnv(gym.Env):
         self.t_inside_std  = t_inside_std
         self.device        = device
 
-        self.observation_space = spaces.Box(low=-10.0, high=10.0, shape=(26,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-10.0, high=10.0, shape=(SEQ_LEN + 2,), dtype=np.float32)
         self.action_space      = spaces.Discrete(4)
 
         self._window = None

@@ -55,7 +55,7 @@ def evaluate(n_steps: int = 500) -> None:
     t_std  = float(scaler.scale_[1])
 
     mpc = MPCSolver(lstm=lstm, t_inside_mean=t_mean, t_inside_std=t_std,
-                    n_candidates=64, horizon=4)
+                    n_candidates=256, horizon=4)
 
     ppo = None
     if _HAS_SB3:

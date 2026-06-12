@@ -35,7 +35,7 @@ LSTM_INTERVAL_H = 24
 PPO_INTERVAL_H  = 24 * 7
 FINE_TUNE_EPOCHS = 5
 FINE_TUNE_LR     = 1e-4
-MIN_NEW_ROWS     = 24   # need at least one full window of new data
+MIN_NEW_ROWS     = 50   # need at least SEQ_LEN+1 rows to form one sequence
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +86,10 @@ def fine_tune_lstm(
 
     scale_cols = ['T_outside', 'T_inside', 'T_floor', 'SR_direct']
     df[scale_cols] = scaler.transform(df[scale_cols])
+
+    if 'hour_sin' not in df.columns:
+        df['hour_sin'] = 0.0
+        df['hour_cos'] = 1.0
 
     X, y = make_sequences(df)
     if len(X) == 0:

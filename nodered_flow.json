@@ -1,0 +1,109 @@
+[
+  {
+    "id": "tab_hvac",
+    "type": "tab",
+    "label": "HVAC Control",
+    "disabled": false
+  },
+
+  {
+    "id": "timer",
+    "type": "inject",
+    "z": "tab_hvac",
+    "name": "Every hour",
+    "repeat": "3600",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "payload": "",
+    "payloadType": "date",
+    "x": 120,
+    "y": 120,
+    "wires": [["build_payload"]]
+  },
+
+  {
+    "id": "build_payload",
+    "type": "function",
+    "z": "tab_hvac",
+    "name": "Build sensor payload",
+    "func":
+      "// Replace these with your actual sensor variable names.\n// They should be set upstream by your sensor input nodes\n// (e.g. Modbus, MQTT, OPC-UA, or a previous function node).\nmsg.headers = { 'Content-Type': 'application/json' };\nmsg.payload = {\n    T_outside: msg.sensors.T_outside,\n    T_inside:  msg.sensors.T_inside,\n    T_floor:   msg.sensors.T_floor,\n    SR_direct: msg.sensors.SR_direct\n};\nreturn msg;",
+    "x": 300,
+    "y": 120,
+    "wires": [["http_predict"]]
+  },
+
+  {
+    "id": "http_predict",
+    "type": "http request",
+    "z": "tab_hvac",
+    "name": "POST /predict",
+    "method": "POST",
+    "ret": "obj",
+    "url": "http://localhost:5001/predict",
+    "x": 500,
+    "y": 120,
+    "wires": [["handle_response", "http_log"]]
+  },
+
+  {
+    "id": "handle_response",
+    "type": "function",
+    "z": "tab_hvac",
+    "name": "Apply action",
+    "func":
+      "// msg.payload = { fan_on: 0|1, heater_on: 0|1, action: 0-3, source: 'mpc'|'ppo' }\nvar r = msg.payload;\nnode.warn('Action: fan=' + r.fan_on + ' heater=' + r.heater_on + ' (source: ' + r.source + ')');\n\n// Send fan command on output 1, heater command on output 2\nvar fanMsg    = { payload: r.fan_on };\nvar heaterMsg = { payload: r.heater_on };\nreturn [fanMsg, heaterMsg];",
+    "outputs": 2,
+    "x": 700,
+    "y": 120,
+    "wires": [["fan_output"], ["heater_output"]]
+  },
+
+  {
+    "id": "fan_output",
+    "type": "debug",
+    "z": "tab_hvac",
+    "name": "Fan on/off",
+    "active": true,
+    "x": 900,
+    "y": 100,
+    "wires": []
+  },
+
+  {
+    "id": "heater_output",
+    "type": "debug",
+    "z": "tab_hvac",
+    "name": "Heater on/off",
+    "active": true,
+    "x": 900,
+    "y": 140,
+    "wires": []
+  },
+
+  {
+    "id": "http_log",
+    "type": "function",
+    "z": "tab_hvac",
+    "name": "Build log payload",
+    "func":
+      "// Log the raw sensor readings + the action taken\nvar decision = msg.payload;\nmsg.headers = { 'Content-Type': 'application/json' };\nmsg.payload = {\n    T_outside: msg.sensors.T_outside,\n    T_inside:  msg.sensors.T_inside,\n    T_floor:   msg.sensors.T_floor,\n    SR_direct: msg.sensors.SR_direct,\n    fan_on:    decision.fan_on,\n    heater_on: decision.heater_on\n};\nreturn msg;",
+    "x": 700,
+    "y": 200,
+    "wires": [["http_log_post"]]
+  },
+
+  {
+    "id": "http_log_post",
+    "type": "http request",
+    "z": "tab_hvac",
+    "name": "POST /log",
+    "method": "POST",
+    "ret": "obj",
+    "url": "http://localhost:5001/log",
+    "x": 900,
+    "y": 200,
+    "wires": []
+  }
+]

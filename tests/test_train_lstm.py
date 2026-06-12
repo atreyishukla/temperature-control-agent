@@ -7,10 +7,12 @@ from lstm_model import BuildingLSTM
 
 
 def _make_tiny_data(tmp_path):
-    """Return a DataFrame with 60 rows — fast enough for tests."""
+    """Return a DataFrame with 100 rows — enough for SEQ_LEN=48 sequences."""
+    import math
     import pandas as pd
     np.random.seed(0)
-    n = 60
+    n = 100
+    hours = np.arange(n) % 24
     data = {
         'T_outside': np.random.randn(n),
         'T_inside':  np.random.randn(n),
@@ -18,6 +20,8 @@ def _make_tiny_data(tmp_path):
         'SR_direct': np.abs(np.random.randn(n)),
         'fan_on':    np.random.randint(0, 2, n).astype(float),
         'heater_on': np.random.randint(0, 2, n).astype(float),
+        'hour_sin':  np.sin(2 * np.pi * hours / 24),
+        'hour_cos':  np.cos(2 * np.pi * hours / 24),
     }
     return pd.DataFrame(data)
 
@@ -53,6 +57,7 @@ def test_train_val_loss_decreases(tmp_path):
     np.random.seed(42)
     n = 200
     t = np.linspace(0, 4 * np.pi, n)
+    hours = np.arange(n) % 24
     df = pd.DataFrame({
         'T_outside': np.sin(t),
         'T_inside':  np.sin(t + 0.1),
@@ -60,6 +65,8 @@ def test_train_val_loss_decreases(tmp_path):
         'SR_direct': np.abs(np.cos(t)),
         'fan_on':    (np.sin(t) > 0).astype(float),
         'heater_on': (np.cos(t) > 0).astype(float),
+        'hour_sin':  np.sin(2 * np.pi * hours / 24),
+        'hour_cos':  np.cos(2 * np.pi * hours / 24),
     })
     losses = []
     train(

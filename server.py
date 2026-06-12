@@ -1,5 +1,7 @@
 import collections
 import csv
+import datetime
+import math
 import os
 import pickle
 
@@ -18,7 +20,8 @@ LOG_PATH   = 'logs/experience.csv'
 MPC_WEIGHT = 0.9
 WINDOW_LEN = 24
 SCALE_COLS = ['T_outside', 'T_inside', 'T_floor', 'SR_direct']
-LOG_FIELDS = ['T_outside', 'T_inside', 'T_floor', 'SR_direct', 'fan_on', 'heater_on']
+LOG_FIELDS = ['T_outside', 'T_inside', 'T_floor', 'SR_direct', 'fan_on', 'heater_on',
+              'hour_sin', 'hour_cos']
 
 app = Flask(__name__)
 
@@ -57,8 +60,12 @@ def _normalise_row(body: dict, fan_on: int = 0, heater_on: int = 0) -> np.ndarra
     raw    = np.array([[body['T_outside'], body['T_inside'],
                         body['T_floor'],   body['SR_direct']]], dtype=np.float32)
     scaled = _scaler.transform(raw)[0]   # (4,)
+    hour   = datetime.datetime.now().hour
+    h_sin  = math.sin(2 * math.pi * hour / 24)
+    h_cos  = math.cos(2 * math.pi * hour / 24)
     return np.array([scaled[0], scaled[1], scaled[2], scaled[3],
-                     float(fan_on), float(heater_on)], dtype=np.float32)
+                     float(fan_on), float(heater_on),
+                     float(h_sin), float(h_cos)], dtype=np.float32)
 
 
 def _get_window() -> np.ndarray:
@@ -109,11 +116,15 @@ def log():
     body = request.get_json(force=True)
     os.makedirs(os.path.dirname(LOG_PATH) or '.', exist_ok=True)
     write_header = not os.path.exists(LOG_PATH)
+    hour  = datetime.datetime.now().hour
+    row   = {k: body[k] for k in ['T_outside', 'T_inside', 'T_floor', 'SR_direct', 'fan_on', 'heater_on']}
+    row['hour_sin'] = math.sin(2 * math.pi * hour / 24)
+    row['hour_cos'] = math.cos(2 * math.pi * hour / 24)
     with open(LOG_PATH, 'a', newline='') as fh:
         writer = csv.DictWriter(fh, fieldnames=LOG_FIELDS)
         if write_header:
             writer.writeheader()
-        writer.writerow({k: body[k] for k in LOG_FIELDS})
+        writer.writerow(row)
     return jsonify({'status': 'ok'})
 
 

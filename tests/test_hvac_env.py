@@ -9,7 +9,7 @@ def _make_env():
     """Make an env with a randomly-initialised LSTM and 50 fake sequences."""
     lstm = BuildingLSTM()
     lstm.eval()
-    seqs = np.random.randn(50, 24, 6).astype(np.float32)
+    seqs = np.random.randn(50, 24, 8).astype(np.float32)
     env = HVACEnv(lstm=lstm, train_sequences=seqs,
                   t_inside_mean=20.0, t_inside_std=10.0)
     return env
@@ -32,7 +32,7 @@ def test_step_returns_correct_types():
     assert isinstance(truncated, bool)
 
 
-def test_episode_terminates_at_168():
+def test_episode_terminates_at_8():
     env = _make_env()
     env.reset(seed=0)
     terminated = False
@@ -40,7 +40,7 @@ def test_episode_terminates_at_168():
     while not terminated:
         _, _, terminated, _, _ = env.step(env.action_space.sample())
         steps += 1
-    assert steps == 168
+    assert steps == 8
 
 
 def test_all_4_actions_valid():
@@ -56,7 +56,7 @@ def test_lstm_not_modified_by_step():
     """Frozen LSTM weights must not change during env stepping."""
     lstm = BuildingLSTM()
     lstm.eval()
-    seqs = np.random.randn(10, 24, 6).astype(np.float32)
+    seqs = np.random.randn(10, 24, 8).astype(np.float32)
     env  = HVACEnv(lstm=lstm, train_sequences=seqs,
                    t_inside_mean=20.0, t_inside_std=10.0)
 

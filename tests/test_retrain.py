@@ -25,13 +25,15 @@ from retrain import (
 
 def _write_experience(path: str, n_rows: int) -> None:
     """Write n_rows of fake experience data."""
+    import math
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
     with open(path, 'w', newline='') as fh:
         writer = csv.writer(fh)
         writer.writerow(['T_outside', 'T_inside', 'T_floor', 'SR_direct',
-                         'fan_on', 'heater_on'])
+                         'fan_on', 'heater_on', 'hour_sin', 'hour_cos'])
         rng = np.random.default_rng(0)
-        for _ in range(n_rows):
+        for i in range(n_rows):
+            hour = i % 24
             writer.writerow([
                 rng.uniform(-10, 30),
                 rng.uniform(15, 25),
@@ -39,6 +41,8 @@ def _write_experience(path: str, n_rows: int) -> None:
                 rng.uniform(0, 800),
                 rng.integers(0, 2),
                 rng.integers(0, 2),
+                math.sin(2 * math.pi * hour / 24),
+                math.cos(2 * math.pi * hour / 24),
             ])
 
 

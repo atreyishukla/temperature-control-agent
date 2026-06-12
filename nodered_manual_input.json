@@ -1,0 +1,107 @@
+[
+    {
+        "id": "inject_very_cold",
+        "type": "inject",
+        "name": "Very Cold  T=5°C",
+        "props": [{ "p": "payload" }],
+        "payload": "{\"T_outside\":3.0,\"T_inside\":5.0,\"T_floor\":6.0,\"SR_direct\":0.0}",
+        "payloadType": "json",
+        "x": 140, "y": 80,
+        "wires": [["set_headers"]]
+    },
+    {
+        "id": "inject_cold",
+        "type": "inject",
+        "name": "Cold  T=12°C",
+        "props": [{ "p": "payload" }],
+        "payload": "{\"T_outside\":5.0,\"T_inside\":12.0,\"T_floor\":11.0,\"SR_direct\":50.0}",
+        "payloadType": "json",
+        "x": 140, "y": 140,
+        "wires": [["set_headers"]]
+    },
+    {
+        "id": "inject_comfortable",
+        "type": "inject",
+        "name": "Comfortable  T=21°C",
+        "props": [{ "p": "payload" }],
+        "payload": "{\"T_outside\":15.0,\"T_inside\":21.0,\"T_floor\":20.0,\"SR_direct\":400.0}",
+        "payloadType": "json",
+        "x": 140, "y": 200,
+        "wires": [["set_headers"]]
+    },
+    {
+        "id": "inject_warm",
+        "type": "inject",
+        "name": "Warm  T=25°C",
+        "props": [{ "p": "payload" }],
+        "payload": "{\"T_outside\":20.0,\"T_inside\":25.0,\"T_floor\":24.0,\"SR_direct\":600.0}",
+        "payloadType": "json",
+        "x": 140, "y": 260,
+        "wires": [["set_headers"]]
+    },
+    {
+        "id": "inject_hot",
+        "type": "inject",
+        "name": "Hot  T=29°C",
+        "props": [{ "p": "payload" }],
+        "payload": "{\"T_outside\":25.0,\"T_inside\":29.0,\"T_floor\":28.0,\"SR_direct\":800.0}",
+        "payloadType": "json",
+        "x": 140, "y": 320,
+        "wires": [["set_headers"]]
+    },
+    {
+        "id": "inject_custom",
+        "type": "inject",
+        "name": "Custom — edit me",
+        "props": [{ "p": "payload" }],
+        "payload": "{\"T_outside\":10.0,\"T_inside\":16.0,\"T_floor\":15.0,\"SR_direct\":200.0}",
+        "payloadType": "json",
+        "x": 140, "y": 400,
+        "wires": [["set_headers"]]
+    },
+    {
+        "id": "set_headers",
+        "type": "change",
+        "name": "Set Content-Type",
+        "rules": [
+            {
+                "t": "set",
+                "p": "headers",
+                "pt": "msg",
+                "to": "{\"Content-Type\":\"application/json\"}",
+                "tot": "json"
+            }
+        ],
+        "x": 360, "y": 240,
+        "wires": [["predict"]]
+    },
+    {
+        "id": "predict",
+        "type": "http request",
+        "name": "POST /predict",
+        "method": "POST",
+        "ret": "obj",
+        "url": "http://localhost:5001/predict",
+        "x": 560, "y": 240,
+        "wires": [["format_result"]]
+    },
+    {
+        "id": "format_result",
+        "type": "function",
+        "name": "Format result",
+        "func": "var r = msg.payload;\nvar fan_label    = r.fan_on    ? 'ON' : 'off';\nvar heater_label = r.heater_on ? 'ON' : 'off';\nvar summary = 'fan=' + fan_label + '  heater=' + heater_label + '  (source: ' + r.source + ')';\nnode.warn(summary);\nmsg.payload = {\n    fan_on:    r.fan_on,\n    heater_on: r.heater_on,\n    action:    r.action,\n    source:    r.source,\n    summary:   summary\n};\nreturn msg;",
+        "x": 760, "y": 240,
+        "wires": [["debug_summary"]]
+    },
+    {
+        "id": "debug_summary",
+        "type": "debug",
+        "name": "Result",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "complete": "payload",
+        "x": 950, "y": 240,
+        "wires": []
+    }
+]

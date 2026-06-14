@@ -93,9 +93,24 @@ Cold is penalised 3× harder than hot, reflecting the Edmonton climate (building
 
 ---
 
-## Setup
+## Getting Started
 
-**Requirements:** Python 3.10+, the Excel dataset (`data/Concrete_floor_results.xlsx`)
+### Prerequisites
+
+- Python 3.10+
+- Node.js 18+ and Node-RED (only needed for Node-RED integration)
+- The Excel dataset: `data/Concrete_floor_results.xlsx` (not included in repo — add your own)
+
+---
+
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/atreyishukla/temperature-control-agent.git
+cd temperature-control-agent
+```
+
+### 2. Create a virtual environment and install dependencies
 
 ```bash
 python -m venv venv
@@ -103,33 +118,44 @@ source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
----
+### 3. Add the dataset
 
-## Training
+Place your Excel file at:
+
+```
+data/Concrete_floor_results.xlsx
+```
+
+The file must have a sheet named `Results` with columns: `Date_time`, `T_outside`, `T_inside`, `T_floor`, `SR_direct`, `Cooling_power`, `Heating_power`.
+
+### 4. Train the models
 
 ```bash
-# 1. Train LSTM world model (~5 min on CPU)
+# Train the LSTM world model (~5 min on CPU)
 python train_lstm.py
 
-# 2. Train PPO agent inside LSTM simulator (~10 min on CPU)
+# Train the PPO agent inside the LSTM simulator (~10 min on CPU)
 python train_ppo.py
-
-# 3. Evaluate on held-out test split
-python evaluate.py
 ```
 
 Trained weights are saved to `models/lstm_best.pt`, `models/ppo_hvac.zip`, `models/scaler.pkl`.
 
----
+### 5. Evaluate
 
-## Running the Server
+```bash
+python evaluate.py
+```
+
+Expected output: MPC comfort zone ~57%, historical baseline ~11.8%.
+
+### 6. Run the server
 
 ```bash
 python server.py
 # Listening on http://0.0.0.0:5001
 ```
 
-**POST /predict** — returns fan/heater decision
+Test it:
 
 ```bash
 curl -X POST http://localhost:5001/predict \
@@ -141,7 +167,7 @@ curl -X POST http://localhost:5001/predict \
 {"action": 2, "fan_on": 0, "heater_on": 1, "source": "mpc"}
 ```
 
-**POST /log** — log a sensor reading to `logs/experience.csv` for online retraining
+Log a reading for online retraining:
 
 ```bash
 curl -X POST http://localhost:5001/log \
@@ -155,46 +181,52 @@ curl -X POST http://localhost:5001/log \
 
 ### Option A — Flask server (Python required)
 
-Import any of the three flow files via the Node-RED hamburger menu → Import.
+With the server running on port 5001, import a flow via the Node-RED hamburger menu → Import:
 
 - **nodered_manual_input.json** — 5 preset temperature scenarios + a custom input node you can edit
-- **nodered_simple_test.json** — inject node → random sensor data → `/predict` → debug
+- **nodered_simple_test.json** — inject node → random sensor data → `/predict` → debug output
 - **nodered_flow.json** — production flow that polls sensors every hour
-
-The server must be running on port 5001 before deploying flows.
 
 ### Option B — Custom Node-RED node (no Python, runs on OCN+)
 
-`node-red-contrib-hvac-agent` is a self-contained Node-RED node that runs the LSTM and MPC entirely in JavaScript using ONNX Runtime. No Python or Flask server needed — install it directly on a Strato Automation OCN+ or any Node-RED instance.
+`node-red-contrib-hvac-agent` runs the LSTM and MPC entirely in JavaScript using ONNX Runtime. No Python or Flask server needed — works on a Strato Automation OCN+ or any Node-RED instance.
 
-**Build the model files first** (requires the trained Python models):
+**Step 1 — Export the model files** (run this once after training):
 
 ```bash
 python export_onnx.py
-# Writes node-red-contrib-hvac-agent/models/lstm_model.onnx
-# Writes node-red-contrib-hvac-agent/models/scaler.json
+# Writes: node-red-contrib-hvac-agent/models/lstm_model.onnx
+# Writes: node-red-contrib-hvac-agent/models/scaler.json
 ```
 
-**Install on Node-RED:**
+**Step 2 — Install dependencies inside the node package:**
 
 ```bash
-# Install dependencies inside the package first
 cd node-red-contrib-hvac-agent
 npm install
+cd ..
+```
 
-# Then install into Node-RED
+**Step 3 — Install the node into Node-RED:**
+
+```bash
 cd ~/.node-red
-npm install /path/to/node-red-contrib-hvac-agent
+npm install /full/path/to/temperature-control-agent/node-red-contrib-hvac-agent
+```
 
-# Restart Node-RED
+**Step 4 — Restart Node-RED:**
+
+```bash
 node-red
 ```
 
-**Input** (`msg.payload`): `T_outside`, `T_inside`, `T_floor`, `SR_direct` (all °C or W/m²)
+The `hvac-agent` node will appear in the Node-RED palette under **function**. Connect any inject node that sends `msg.payload` with `T_outside`, `T_inside`, `T_floor`, `SR_direct` to it.
+
+**Input** (`msg.payload`): `T_outside`, `T_inside`, `T_floor`, `SR_direct`
 
 **Output** (`msg.payload`): `fan_on` (0/1), `heater_on` (0/1), `action` (0–3), `source: "mpc"`
 
-The node maintains a rolling 24-step window in context and runs 256-candidate MPC on each input message.
+The node keeps a rolling 24-step history in context and runs 256-candidate MPC on every message.
 
 ---
 

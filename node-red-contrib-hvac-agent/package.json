@@ -1,0 +1,14 @@
+{
+  "name": "node-red-contrib-hvac-agent",
+  "version": "1.0.0",
+  "description": "LSTM+MPC HVAC control node for concrete floor heating systems",
+  "keywords": ["node-red", "hvac", "lstm", "mpc", "building-automation"],
+  "node-red": {
+    "nodes": {
+      "hvac-agent": "hvac-agent.js"
+    }
+  },
+  "dependencies": {
+    "onnxruntime-node": "^1.18.0"
+  }
+}

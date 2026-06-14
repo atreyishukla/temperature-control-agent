@@ -1,0 +1,66 @@
+<script type="text/javascript">
+    RED.nodes.registerType('hvac-agent', {
+        category:    'function',
+        color:       '#a6bbcf',
+        defaults: {
+            name:        { value: '' },
+            nCandidates: { value: 256, validate: RED.validators.number() },
+            horizon:     { value: 4,   validate: RED.validators.number() },
+            gamma:       { value: 0.95 },
+        },
+        inputs:  1,
+        outputs: 1,
+        icon:    'font-awesome/fa-thermometer-half',
+        label: function() { return this.name || 'hvac-agent'; },
+    });
+</script>
+
+<script type="text/html" data-template-name="hvac-agent">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="hvac-agent">
+    </div>
+    <div class="form-row">
+        <label for="node-input-nCandidates"><i class="fa fa-random"></i> MPC candidates</label>
+        <input type="number" id="node-input-nCandidates" min="16" max="1024">
+        <span style="margin-left:8px;color:#aaa">Higher = better decision, slower</span>
+    </div>
+    <div class="form-row">
+        <label for="node-input-horizon"><i class="fa fa-forward"></i> Horizon (steps)</label>
+        <input type="number" id="node-input-horizon" min="1" max="12">
+    </div>
+    <div class="form-row">
+        <label for="node-input-gamma"><i class="fa fa-percent"></i> Discount γ</label>
+        <input type="text" id="node-input-gamma">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="hvac-agent">
+    <p>LSTM+MPC HVAC control agent for concrete floor heating.</p>
+
+    <h3>Input</h3>
+    <p><code>msg.payload</code> must contain:</p>
+    <ul>
+        <li><b>T_outside</b> — outdoor temperature (°C)</li>
+        <li><b>T_inside</b>  — indoor air temperature (°C)</li>
+        <li><b>T_floor</b>   — floor surface temperature (°C)</li>
+        <li><b>SR_direct</b> — direct solar radiation (W/m²)</li>
+    </ul>
+
+    <h3>Output</h3>
+    <p><code>msg.payload</code> returns:</p>
+    <ul>
+        <li><b>fan_on</b>    — 0 or 1</li>
+        <li><b>heater_on</b> — 0 or 1</li>
+        <li><b>action</b>    — 0–3 (0=both off, 1=fan, 2=heater, 3=both)</li>
+        <li><b>source</b>    — always "mpc"</li>
+    </ul>
+
+    <h3>Comfort zone</h3>
+    <p>Target: 18–24°C. Cold is penalised 3× harder than hot.</p>
+
+    <h3>Setup</h3>
+    <p>Run <code>python export_onnx.py</code> after training to generate
+    <code>models/lstm_model.onnx</code> and <code>models/scaler.json</code>,
+    then copy this package to the OCN+ and run <code>npm install</code>.</p>
+</script>

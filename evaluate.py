@@ -14,8 +14,11 @@ import numpy as np
 import torch
 from tabulate import tabulate          # pip install tabulate  (or we print manually)
 
+np.random.seed(42)
+torch.manual_seed(42)
+
 from data_pipeline import load_data, split_scale, make_sequences
-from lstm_model import BuildingLSTM
+from lstm_model import BuildingLSTM, load_ensemble
 from mpc import MPCSolver
 from reward import compute_reward
 from hvac_env import ACTION_MAP
@@ -31,11 +34,17 @@ LSTM_PATH   = 'models/lstm_best.pt'
 SCALER_PATH = 'models/scaler.pkl'
 PPO_PATH    = 'models/ppo_hvac.zip'
 
-FEATURE_COLS = ['T_outside', 'T_inside', 'T_floor', 'SR_direct', 'fan_on', 'heater_on']
-
 
 def _ppo_obs(window: np.ndarray) -> np.ndarray:
-    return np.concatenate([window[:, 1], window[-1, 0:1], window[-1, 3:4]]).astype(np.float32)
+    return np.concatenate([
+        window[:, 1],       # 24 T_inside history
+        window[-6:, 0],     # 6 T_outside trend
+        window[-1, 3:4],    # SR_now
+        window[-1, 4:5],    # prev_fan
+        window[-1, 5:6],    # prev_heater
+        window[-1, 6:7],    # hour_sin
+        window[-1, 7:8],    # hour_cos
+    ]).astype(np.float32)
 
 
 def evaluate(n_steps: int = 500) -> None:
@@ -54,8 +63,7 @@ def evaluate(n_steps: int = 500) -> None:
     t_mean = float(scaler.mean_[1])
     t_std  = float(scaler.scale_[1])
 
-    mpc = MPCSolver(lstm=lstm, t_inside_mean=t_mean, t_inside_std=t_std,
-                    n_candidates=256, horizon=4)
+    mpc = MPCSolver(lstm=lstm, t_inside_mean=t_mean, t_inside_std=t_std)
 
     ppo = None
     if _HAS_SB3:
@@ -85,7 +93,7 @@ def evaluate(n_steps: int = 500) -> None:
     for i, idx in enumerate(indices):
         if i % 50 == 0:
             print(f'  {i}/{n_steps}', end='\r', flush=True)
-        window = X_test[idx]   # (24, 6) normalised
+        window = X_test[idx]   # (24, 8) normalised
 
         def _step_reward(action: int) -> tuple[float, float]:
             fan_on, heater_on = ACTION_MAP[action]

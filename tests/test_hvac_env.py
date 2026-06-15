@@ -18,7 +18,7 @@ def _make_env():
 def test_reset_obs_shape():
     env = _make_env()
     obs, info = env.reset(seed=0)
-    assert obs.shape == (26,), f"Expected (26,), got {obs.shape}"
+    assert obs.shape == (35,), f"Expected (35,), got {obs.shape}"
     assert obs.dtype == np.float32
 
 
@@ -26,7 +26,7 @@ def test_step_returns_correct_types():
     env = _make_env()
     env.reset(seed=0)
     obs, reward, terminated, truncated, info = env.step(0)
-    assert obs.shape == (26,)
+    assert obs.shape == (35,)
     assert isinstance(reward, float)
     assert isinstance(terminated, bool)
     assert isinstance(truncated, bool)
@@ -48,7 +48,7 @@ def test_all_4_actions_valid():
     for action in range(4):
         env.reset(seed=action)
         obs, reward, _, _, _ = env.step(action)
-        assert obs.shape == (26,)
+        assert obs.shape == (35,)
         assert np.isfinite(reward)
 
 

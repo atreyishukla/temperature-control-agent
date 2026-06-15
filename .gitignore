@@ -43,8 +43,7 @@ data/
 *.npz
 *.npy
 
-# Trained model weights (regenerate with train_lstm.py + train_ppo.py)
-models/
+
 
 # Runtime logs
 logs/
@@ -52,3 +51,15 @@ logs/
 # Environment secrets
 .env
 *.env.*
+
+# Trained model artifacts
+models/
+*.pt
+*.pth
+*.onnx
+*.pkl
+*.zip
+
+# Node-RED contrib package
+node-red-contrib-hvac-agent/node_modules/
+node-red-contrib-hvac-agent/package-lock.json

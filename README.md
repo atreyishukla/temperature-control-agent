@@ -1,6 +1,6 @@
 # Temperature Control Agent
 
-An HVAC control system for a concrete floor radiant heating building. Uses an LSTM world model trained on historical sensor data, a PPO reinforcement learning agent, and a Model Predictive Control (MPC) optimizer to decide when to run the heater and cooling fan each hour.
+An HVAC control system for buildings with radiant floor heating. Uses an LSTM world model trained on historical sensor data, a PPO reinforcement learning agent, and a Model Predictive Control (MPC) optimizer to decide when to run the heater and cooling fan each hour.
 
 **Result:** MPC achieves **57% comfort zone time** vs **11.8%** with the original historical control strategy — a 4.8× improvement.
 
@@ -42,14 +42,14 @@ Target: **18–24°C**
 | Condition | Penalty |
 |---|---|
 | T in 18–24°C | +2.0 |
-| T < 18°C | −(18−T)² × 3 |
-| T > 24°C | −(T−24)² |
-| T < 15°C and heater off | −10 × (15−T) extra |
-| T > 27°C and fan off | −4 × (T−27) extra |
+| T < 18°C | −(18−T)² × 2 |
+| T > 24°C | −(T−24)² × 2 |
+| T < 15°C and heater off | −5 × (15−T) extra |
+| T > 27°C and fan off | −5 × (T−27) extra |
 | Fan on | −0.05 |
 | Heater on | −0.10 |
 
-Cold is penalised 3× harder than hot, reflecting the Edmonton climate (building reached −8°C inside historically).
+Cold and hot deviations are penalised equally. The inaction penalty fires when the deviation exceeds 3°C and the corrective device is off.
 
 ---
 

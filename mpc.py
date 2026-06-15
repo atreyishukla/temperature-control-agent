@@ -6,6 +6,8 @@ from reward import compute_reward
 HORIZON = 24
 N_CANDIDATES = 1024
 GAMMA = 0.95
+CEM_ITERATIONS = 3
+CEM_ELITE_FRAC = 0.1   # top 10% guide the next sample
 
 ACTION_MAP = {0: (0, 0), 1: (1, 0), 2: (0, 1), 3: (1, 1)}
 
@@ -28,31 +30,61 @@ class MPCSolver:
         horizon:       int   = HORIZON,
         n_candidates:  int   = N_CANDIDATES,
         gamma:         float = GAMMA,
+        cem_iterations: int  = CEM_ITERATIONS,
+        cem_elite_frac: float = CEM_ELITE_FRAC,
     ):
-        self.lstm          = lstm
-        self.t_inside_mean = t_inside_mean
-        self.t_inside_std  = t_inside_std
-        self.device        = device
-        self.horizon       = horizon
-        self.n_candidates  = n_candidates
-        self.gamma         = gamma
+        self.lstm           = lstm
+        self.t_inside_mean  = t_inside_mean
+        self.t_inside_std   = t_inside_std
+        self.device         = device
+        self.horizon        = horizon
+        self.n_candidates   = n_candidates
+        self.gamma          = gamma
+        self.cem_iterations = cem_iterations
+        self.n_elite        = max(1, int(n_candidates * cem_elite_frac))
 
     def solve(self, window: np.ndarray) -> int:
         """
         Return the best first action (0-3) for the given 24-step window.
 
-        window: (24, 6) normalised feature array — same layout as LSTM input.
+        Uses Cross-Entropy Method: iteratively refine action probabilities
+        toward high-reward regions instead of pure random shooting.
+
+        window: (24, 8) normalised feature array — same layout as LSTM input.
         """
-        actions = np.random.randint(0, 4, size=(self.n_candidates, self.horizon))
-        scores  = self._rollout(window, actions)
-        best    = int(np.argmax(scores))
+        N, H = self.n_candidates, self.horizon
+        # Uniform prior: each of 4 actions equally likely at each horizon step
+        probs = np.full((H, 4), 0.25)
+
+        actions = self._sample(probs)
+        for _ in range(self.cem_iterations):
+            scores  = self._rollout(window, actions)
+            elite   = np.argsort(scores)[-self.n_elite:]
+            # Re-estimate action probabilities from elite sequences
+            counts  = np.zeros((H, 4), dtype=np.float64)
+            for t in range(H):
+                for a in actions[elite, t]:
+                    counts[t, a] += 1
+            probs   = counts / self.n_elite
+            actions = self._sample(probs)
+
+        scores = self._rollout(window, actions)
+        best   = int(np.argmax(scores))
         return int(actions[best, 0])
+
+    def _sample(self, probs: np.ndarray) -> np.ndarray:
+        """Sample n_candidates action sequences from per-step action probabilities."""
+        H = probs.shape[0]
+        actions = np.empty((self.n_candidates, H), dtype=np.int32)
+        for t in range(H):
+            actions[:, t] = np.random.choice(4, size=self.n_candidates, p=probs[t])
+        return actions
 
     def _rollout(self, window: np.ndarray, actions: np.ndarray) -> np.ndarray:
         """
         Batch-roll N candidate sequences through the LSTM.
 
-        window:  (24, 6)
+        window:  (24, 8)
         actions: (N, H) integer action indices
         Returns: (N,) discounted cumulative reward
         """

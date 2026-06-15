@@ -92,5 +92,29 @@ def train(
 
 
 if __name__ == '__main__':
-    model = train()
+    N_TRIALS = 5
+    best_val  = float('inf')
+    best_seed = None
+
+    df = load_data(DATA_PATH)
+    df_train, df_val, _, scaler = split_scale(df)
+    save_scaler(scaler, SCALER_PATH)
+
+    import numpy as np
+    for seed in range(N_TRIALS):
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        print(f'\n--- Trial {seed + 1}/{N_TRIALS} (seed={seed}) ---')
+        log = []
+        train(df_train=df_train, df_val=df_val,
+              model_path=f'models/lstm_trial_{seed}.pt', loss_log=log)
+        trial_best = min(log)
+        print(f'  best val_loss={trial_best:.6f}')
+        if trial_best < best_val:
+            best_val  = trial_best
+            best_seed = seed
+
+    import shutil
+    shutil.copy(f'models/lstm_trial_{best_seed}.pt', MODEL_PATH)
+    print(f'\nBest trial: seed={best_seed}, val_loss={best_val:.6f}')
     print(f'Training complete. Model saved to {MODEL_PATH}')

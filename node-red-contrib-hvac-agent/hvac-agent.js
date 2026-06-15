@@ -9,46 +9,49 @@ const SEQ_LEN    = 24;
 const N_FEATURES = 8;
 const ACTION_MAP = [[0,0],[1,0],[0,1],[1,1]];  // [fan, heat] for actions 0-3
 
-// ---------- reward (mirrors reward.py) ----------
-function computeReward(tInside, fanOn, heaterOn) {
-    const coldDev = Math.max(0, 18.0 - tInside);
-    const hotDev  = Math.max(0, tInside - 24.0);
+// ---------- reward (mirrors reward.py exactly) ----------
+function computeReward(tInside, fanOn, heaterOn, tLow = 18.0, tHigh = 24.0) {
+    const coldDev = Math.max(0, tLow  - tInside);
+    const hotDev  = Math.max(0, tInside - tHigh);
 
     let rComfort;
-    if (coldDev > 0)      rComfort = -(coldDev ** 2) * 3.0;
-    else if (hotDev > 0)  rComfort = -(hotDev  ** 2) * 1.0;
+    if (coldDev > 0)      rComfort = -(coldDev ** 2) * 2.0;
+    else if (hotDev > 0)  rComfort = -(hotDev  ** 2) * 2.0;
     else                  rComfort = 2.0;
 
     let rInaction = 0;
-    if (coldDev > 3.0 && heaterOn === 0) rInaction = -10.0 * coldDev;
-    else if (hotDev > 3.0 && fanOn === 0) rInaction = -4.0 * hotDev;
+    if (coldDev > 1.0 && heaterOn === 0) rInaction = -5.0 * coldDev;
+    else if (hotDev > 3.0 && fanOn === 0) rInaction = -5.0 * hotDev;
 
-    const rEnergy = -(0.05 * fanOn + 0.10 * heaterOn);
-    return rComfort + rInaction + rEnergy;
+    const rWarming = (heaterOn === 1 && coldDev > 0) ? 1.0 : 0.0;
+    const rEnergy  = -(0.05 * fanOn + 0.10 * heaterOn);
+
+    return rComfort + rInaction + rWarming + rEnergy;
 }
 
-// ---------- MPC random shooting ----------
-async function mpcSolve(session, window24x8, scaler, nCandidates, horizon, gamma) {
-    const N = nCandidates;
-    const H = horizon;
-    const tInsideMean = scaler.mean[1];
-    const tInsideStd  = scaler.scale[1];
+// ---------- MPC helpers ----------
 
-    // Random action sequences (N, H)
+function sampleActions(probs, N, H) {
     const actions = new Int32Array(N * H);
-    for (let i = 0; i < actions.length; i++) actions[i] = Math.floor(Math.random() * 4);
-
-    // Tile window: (N, SEQ_LEN, N_FEATURES)
-    const windows = new Float32Array(N * SEQ_LEN * N_FEATURES);
-    for (let n = 0; n < N; n++) {
-        windows.set(window24x8, n * SEQ_LEN * N_FEATURES);
+    for (let h = 0; h < H; h++) {
+        const p = probs[h];
+        const cdf = [p[0], p[0]+p[1], p[0]+p[1]+p[2], 1.0];
+        for (let n = 0; n < N; n++) {
+            const r = Math.random();
+            actions[n * H + h] = cdf.findIndex(c => r < c);
+        }
     }
+    return actions;
+}
+
+async function rolloutBatch(session, window24x8, actions, N, H, gamma, tInsideMean, tInsideStd) {
+    const windows = new Float32Array(N * SEQ_LEN * N_FEATURES);
+    for (let n = 0; n < N; n++) windows.set(window24x8, n * SEQ_LEN * N_FEATURES);
 
     const totalReward = new Float64Array(N);
     let discount = 1.0;
 
     for (let h = 0; h < H; h++) {
-        // Inject current actions into last row of each candidate window
         const lstmInput = new Float32Array(windows);
         for (let n = 0; n < N; n++) {
             const [fan, heat] = ACTION_MAP[actions[n * H + h]];
@@ -57,24 +60,21 @@ async function mpcSolve(session, window24x8, scaler, nCandidates, horizon, gamma
             lstmInput[offset + 5] = heat;
         }
 
-        // Batch ONNX inference: (N, SEQ_LEN, N_FEATURES) → (N, 2)
         const tensor  = new ort.Tensor('float32', lstmInput, [N, SEQ_LEN, N_FEATURES]);
         const results = await session.run({ input: tensor });
-        const delta   = results.delta.data;  // Float32Array length N*2
+        const delta   = results.delta.data;
 
-        // Update rewards and slide windows
         for (let n = 0; n < N; n++) {
             const [fan, heat] = ACTION_MAP[actions[n * H + h]];
-            const wOffset     = n * SEQ_LEN * N_FEATURES;
-            const lastOffset  = wOffset + (SEQ_LEN - 1) * N_FEATURES;
+            const wOffset    = n * SEQ_LEN * N_FEATURES;
+            const lastOffset = wOffset + (SEQ_LEN - 1) * N_FEATURES;
 
-            const tInNorm  = windows[lastOffset + 1] + delta[n * 2];
-            const tFlNorm  = windows[lastOffset + 2] + delta[n * 2 + 1];
-            const tInReal  = tInNorm * tInsideStd + tInsideMean;
+            const tInNorm = windows[lastOffset + 1] + delta[n * 2];
+            const tFlNorm = windows[lastOffset + 2] + delta[n * 2 + 1];
+            const tInReal = tInNorm * tInsideStd + tInsideMean;
 
             totalReward[n] += discount * computeReward(tInReal, fan, heat);
 
-            // Slide window left by one row, append new row
             windows.copyWithin(wOffset, wOffset + N_FEATURES, wOffset + SEQ_LEN * N_FEATURES);
             const newOffset = wOffset + (SEQ_LEN - 1) * N_FEATURES;
             windows.set(lstmInput.slice(lastOffset, lastOffset + N_FEATURES), newOffset);
@@ -87,10 +87,45 @@ async function mpcSolve(session, window24x8, scaler, nCandidates, horizon, gamma
         discount *= gamma;
     }
 
-    // Best first action
+    return totalReward;
+}
+
+// CEM MPC — mirrors mpc.py
+async function mpcSolve(session, window24x8, scaler, nCandidates, horizon, gamma, cemIterations, cemEliteFrac) {
+    const N       = nCandidates;
+    const H       = horizon;
+    const nElite  = Math.max(1, Math.floor(N * cemEliteFrac));
+    const tInsideMean = scaler.mean[1];
+    const tInsideStd  = scaler.scale[1];
+
+    // Uniform prior
+    let probs   = Array.from({ length: H }, () => [0.25, 0.25, 0.25, 0.25]);
+    let actions = sampleActions(probs, N, H);
+
+    for (let iter = 0; iter < cemIterations; iter++) {
+        const scores = await rolloutBatch(session, window24x8, actions, N, H, gamma, tInsideMean, tInsideStd);
+
+        // Select elite indices
+        const sorted = Array.from({ length: N }, (_, i) => i)
+            .sort((a, b) => scores[b] - scores[a]);
+        const elite = sorted.slice(0, nElite);
+
+        // Re-estimate action probabilities from elite
+        probs = Array.from({ length: H }, () => [0, 0, 0, 0]);
+        for (const n of elite) {
+            for (let h = 0; h < H; h++) probs[h][actions[n * H + h]]++;
+        }
+        for (let h = 0; h < H; h++) {
+            for (let a = 0; a < 4; a++) probs[h][a] /= nElite;
+        }
+
+        actions = sampleActions(probs, N, H);
+    }
+
+    const finalScores = await rolloutBatch(session, window24x8, actions, N, H, gamma, tInsideMean, tInsideStd);
     let bestN = 0;
     for (let n = 1; n < N; n++) {
-        if (totalReward[n] > totalReward[bestN]) bestN = n;
+        if (finalScores[n] > finalScores[bestN]) bestN = n;
     }
     return actions[bestN * H];
 }
@@ -109,12 +144,13 @@ module.exports = function(RED) {
 
     function HVACAgentNode(config) {
         RED.nodes.createNode(this, config);
-        const node        = this;
-        const nCandidates = parseInt(config.nCandidates) || 256;
-        const horizon     = parseInt(config.horizon)     || 4;
-        const gamma       = parseFloat(config.gamma)     || 0.95;
+        const node          = this;
+        const nCandidates   = parseInt(config.nCandidates)   || 1024;
+        const horizon       = parseInt(config.horizon)       || 24;
+        const gamma         = parseFloat(config.gamma)       || 0.95;
+        const cemIterations = parseInt(config.cemIterations) || 3;
+        const cemEliteFrac  = parseFloat(config.cemEliteFrac) || 0.1;
 
-        // Rolling 24-step window — persisted in node context
         const ctx    = node.context();
         let   window = ctx.get('window') || null;
 
@@ -130,7 +166,6 @@ module.exports = function(RED) {
                 return;
             }
 
-            // Normalise sensor readings
             const hour   = new Date().getHours();
             const hSin   = Math.sin(2 * Math.PI * hour / 24);
             const hCos   = Math.cos(2 * Math.PI * hour / 24);
@@ -139,13 +174,10 @@ module.exports = function(RED) {
                 (T_inside  - scaler.mean[1]) / scaler.scale[1],
                 (T_floor   - scaler.mean[2]) / scaler.scale[2],
                 (SR_direct - scaler.mean[3]) / scaler.scale[3],
-                0,     // fan_on    — filled by MPC
-                0,     // heater_on — filled by MPC
-                hSin,
-                hCos,
+                0, 0,  // fan_on, heater_on — filled by MPC
+                hSin, hCos,
             ]);
 
-            // Initialise or update rolling window
             if (!window) {
                 window = new Float32Array(SEQ_LEN * N_FEATURES);
                 for (let i = 0; i < SEQ_LEN; i++) window.set(normed, i * N_FEATURES);
@@ -156,10 +188,12 @@ module.exports = function(RED) {
             ctx.set('window', window);
 
             try {
-                const action = await mpcSolve(session, window, scaler, nCandidates, horizon, gamma);
+                const action = await mpcSolve(
+                    session, window, scaler,
+                    nCandidates, horizon, gamma, cemIterations, cemEliteFrac
+                );
                 const [fanOn, heaterOn] = ACTION_MAP[action];
 
-                // Write chosen action into last row so the window reflects reality
                 window[(SEQ_LEN - 1) * N_FEATURES + 4] = fanOn;
                 window[(SEQ_LEN - 1) * N_FEATURES + 5] = heaterOn;
                 ctx.set('window', window);

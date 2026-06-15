@@ -1,6 +1,7 @@
 import torch, numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.monitor import Monitor
 from data_pipeline import load_data, split_scale, make_sequences
 from lstm_model import BuildingLSTM
 from hvac_env import HVACEnv
@@ -20,5 +21,5 @@ env = HVACEnv(lstm=lstm, train_sequences=X_train,
 
 model = PPO.load('models/ppo_hvac')
 
-mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=20)
+mean_reward, std_reward = evaluate_policy(model, Monitor(env), n_eval_episodes=20)
 print(f"Mean reward: {mean_reward:.2f} ± {std_reward:.2f}")
